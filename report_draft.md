@@ -2,9 +2,9 @@
 
 ## Abstract
 
-This project uses SplitwiseSim to study when prefill-decode (PD) disaggregation improves LLM serving latency. We compare a coupled baseline against a PD architecture over prompt length, output length, request rate, and KV-cache transfer bandwidth. The main result is that PD is not a universal win: it frequently improves decode token latency and often improves end-to-end latency, but it rarely improves effective time-to-first-token (TTFT) once KV transfer overhead is included.
+This project uses SplitwiseSim to study when prefill-decode (PD) disaggregation improves LLM serving latency. We compare a coupled baseline against a PD architecture over prompt length, output length, request rate, and KV-cache transfer bandwidth. The main result is that PD is not a universal win: it frequently improves decode token latency and often improves end-to-end latency, but it introduces a KV-cache handoff delay between prefill and decode.
 
-In the main A100-only sweep, PD improves p99 time-between-tokens (TBT) in 109/144 cases and p99 end-to-end latency in 90/144 cases. However, it improves p99 effective TTFT in only 8/144 cases. This suggests that PD is most useful when decode-side batching or resource isolation compensates for the extra KV transfer path, and least useful when TTFT is the dominant objective, bandwidth is low, or the prompt/decode resource split is poorly matched to the workload.
+In the main A100-only sweep, PD improves p99 time-between-tokens (TBT) in 109/144 cases and p99 end-to-end latency in 90/144 cases. However, it improves p99 TTFT plus handoff overhead in only 8/144 cases. This suggests that PD is most useful when decode-side batching or resource isolation compensates for the extra KV transfer path, and least useful when handoff delay, bandwidth, or the prompt/decode resource split dominate the workload.
 
 ## Research Questions
 
@@ -44,7 +44,7 @@ This gives 144 complete PD/baseline pairs. Additional checks include a smaller o
 
 ## Metrics
 
-The primary metrics are p99 effective TTFT, p99 TBT, and p99 end-to-end latency. Ratios are reported as:
+The primary metrics are p99 TTFT plus handoff overhead, p99 TBT, and p99 end-to-end latency. Ratios are reported as:
 
 ```text
 PD / baseline
@@ -52,34 +52,34 @@ PD / baseline
 
 A ratio below 1.0 means PD is better.
 
-One important simulator detail is that SplitwiseSim's raw `ttft_times` is recorded at prompt completion. In a disaggregated system, the first token cannot be produced until after KV transfer. Therefore this study uses:
+One important simulator detail is that SplitwiseSim's raw `ttft_times` is recorded at prompt completion. In this simulator, the prompt task generates the first output token, and KV transfer happens between the prompt task and the remaining decode/token task. Therefore this study also reports a stricter derived metric:
 
 ```text
 effective_ttft = ttft_times + nth_token_overheads
 ```
 
-This derived metric is more appropriate for comparing PD against the coupled baseline.
+The CSV column is called `effective_ttft`, but conceptually it should be read as `TTFT + handoff overhead` or `first decode-token readiness`, not pure user-visible TTFT. It exposes the PD handoff penalty from KV transfer and token-side queueing.
 
 ## Results
 
-### 1. PD Improves Decode Latency More Often Than TTFT
+### 1. PD Improves Decode Latency More Often Than The Handoff Path
 
 Across the 144-point main sweep:
 
 | Metric | PD better | Share | Median PD/baseline |
 | --- | ---: | ---: | ---: |
-| effective TTFT p99 | 8/144 | 5.6% | 1.675 |
+| TTFT + handoff p99 | 8/144 | 5.6% | 1.675 |
 | TBT p99 | 109/144 | 75.7% | 0.941 |
 | E2E p99 | 90/144 | 62.5% | 0.962 |
 
-The strongest conclusion is that PD helps decode-side behavior much more reliably than first-token behavior. This matches the intuition that separating prefill and decode can improve decode batching and reduce phase interference, but also introduces KV transfer delay.
+The strongest conclusion is that PD helps decode-side behavior much more reliably than the prefill-to-decode handoff path. This matches the intuition that separating prefill and decode can improve decode batching and reduce phase interference, but also introduces KV transfer delay.
 
 Recommended figures:
 
 | Figure | Path |
 | --- | --- |
 | E2E ratio lines | `results/report_assets/figures/main_e2e_ratio_lines.png` |
-| Effective TTFT ratio lines | `results/report_assets/figures/main_effective_ttft_ratio_lines.png` |
+| TTFT + handoff ratio lines | `results/report_assets/figures/main_effective_ttft_ratio_lines.png` |
 | TBT ratio lines | `results/report_assets/figures/main_tbt_ratio_lines.png` |
 
 ### 2. The Best Region Is Short-to-Medium Output Under High Load
@@ -107,22 +107,22 @@ Recommended figures:
 | E2E heatmap, output 64, 100 RPS | `results/report_assets/figures/heatmap_e2e_o64_r100.png` |
 | E2E heatmap, output 256, 100 RPS | `results/report_assets/figures/heatmap_e2e_o256_r100.png` |
 
-### 3. KV Transfer Bandwidth Primarily Hurts Effective TTFT
+### 3. KV Transfer Bandwidth Primarily Hurts The Handoff Path
 
-Bandwidth sensitivity is clearest in effective TTFT. PD has to move KV state from prefill workers to decode workers, so lower bandwidth directly increases first-token delay. This is why effective TTFT is worse in most PD cases even when TBT or E2E improves.
+Bandwidth sensitivity is clearest in the TTFT + handoff metric. PD has to move KV state from prefill workers to decode workers, so lower bandwidth directly increases the delay before decode-side token generation can continue. This is why the handoff-adjusted metric is worse in most PD cases even when TBT or E2E improves.
 
 Recommended figures:
 
 | Figure | Path |
 | --- | --- |
-| Effective TTFT heatmap, output 64, 100 RPS | `results/report_assets/figures/heatmap_effective_ttft_o64_r100.png` |
-| Effective TTFT heatmap, output 256, 100 RPS | `results/report_assets/figures/heatmap_effective_ttft_o256_r100.png` |
+| TTFT + handoff heatmap, output 64, 100 RPS | `results/report_assets/figures/heatmap_effective_ttft_o64_r100.png` |
+| TTFT + handoff heatmap, output 256, 100 RPS | `results/report_assets/figures/heatmap_effective_ttft_o256_r100.png` |
 
 ### 4. Resource Split Is a First-Order Parameter
 
 The resource split sweep shows that a fixed 4:4 prompt/decode allocation is not always optimal.
 
-| Workload | Best split | E2E ratio | Effective TTFT ratio |
+| Workload | Best split | E2E ratio | TTFT + handoff ratio |
 | --- | --- | ---: | ---: |
 | p128 o16 r100 | 6:2 | 0.706 | 1.265 |
 | p512 o64 r100 | 6:2 | 0.797 | 1.354 |
@@ -165,7 +165,7 @@ The study fixes the main PD allocation to 4:4 except in the resource split sweep
 
 ## Conclusion
 
-Prefill-decode disaggregation helps when decode-side isolation and batching reduce TBT and end-to-end tail latency enough to offset KV transfer overhead. It is not automatically beneficial. In this A100-only SplitwiseSim study, PD often improves TBT and E2E latency, especially for short-to-medium output under high load, but it rarely improves effective TTFT. The practical lesson is that PD should be evaluated as a workload-, network-, and allocation-dependent design rather than a universally better serving architecture.
+Prefill-decode disaggregation helps when decode-side isolation and batching reduce TBT and end-to-end tail latency enough to offset KV transfer overhead. It is not automatically beneficial. In this A100-only SplitwiseSim study, PD often improves TBT and E2E latency, especially for short-to-medium output under high load, but it rarely improves the TTFT + handoff metric. The practical lesson is that PD should be evaluated as a workload-, network-, and allocation-dependent design rather than a universally better serving architecture.
 
 ## Reproduction
 

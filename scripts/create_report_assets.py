@@ -161,7 +161,7 @@ def build_markdown(
         "## Key Results",
         "",
         (
-            f"- Effective TTFT p99 improved in {int(ttft['pd_better_count'])}/"
+            f"- TTFT + handoff p99 improved in {int(ttft['pd_better_count'])}/"
             f"{int(ttft['cases'])} cases "
             f"({100 * ttft['pd_better_share']:.1f}%). Median PD/baseline ratio: "
             f"{ttft['median_pd_over_baseline']:.3f}."
@@ -180,7 +180,10 @@ def build_markdown(
         ),
         "",
         "This supports the main trade-off: PD often improves decode-token latency and "
-        "sometimes end-to-end latency, but KV transfer usually worsens effective TTFT.",
+        "sometimes end-to-end latency, but KV transfer usually worsens the handoff "
+        "path between prefill and decode. The underlying CSV column is named "
+        "`effective_ttft`, but it should be read as TTFT plus handoff overhead, "
+        "not pure user-visible TTFT.",
         "",
         "## Best and Worst E2E Cases",
         "",
@@ -227,7 +230,7 @@ def build_markdown(
                 f"- prompt={int(row['prompt'])}, rate={int(row['rate'])} RPS, "
                 f"bandwidth={row['bandwidth']:g} GB/s: "
                 f"E2E ratio={row['pd_over_baseline_response_times_p99']:.3f}, "
-                f"effective TTFT ratio={row['pd_over_baseline_effective_ttft_p99']:.3f}."
+                f"TTFT + handoff ratio={row['pd_over_baseline_effective_ttft_p99']:.3f}."
             )
 
     lines.extend(
@@ -251,8 +254,8 @@ def build_markdown(
             "In this simulator study, prefill-decode disaggregation is not a universal "
             "latency win. It is most useful when decode batching/resource isolation "
             "reduces TBT enough to compensate for KV transfer. It is least favorable "
-            "for TTFT-sensitive settings, low KV bandwidth, or poorly matched "
-            "prompt/decode resource splits.",
+            "when KV handoff delay, low bandwidth, or poorly matched prompt/decode "
+            "resource splits dominate.",
             "",
         ]
     )

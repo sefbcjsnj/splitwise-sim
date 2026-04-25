@@ -11,7 +11,7 @@ The project compares a coupled LLM serving baseline against prefill-decode (PD) 
 
 ## Summary
 
-Prefill-decode disaggregation is not a universal latency win. In this A100-only simulator study, PD often improves decode-token latency and sometimes improves end-to-end tail latency, but it rarely improves effective time-to-first-token (TTFT) once KV-cache transfer overhead is included.
+Prefill-decode disaggregation is not a universal latency win. In this A100-only simulator study, PD often improves decode-token latency and sometimes improves end-to-end tail latency, but it introduces a KV-cache handoff delay between the prefill worker and the decode worker.
 
 The main sweep has 144 parameter points:
 
@@ -25,7 +25,8 @@ Metric meanings:
 
 | Metric | Meaning |
 | --- | --- |
-| effective TTFT p99 | 99th percentile time-to-first-token, including prompt computation and KV-cache transfer overhead |
+| raw TTFT p99 | 99th percentile time-to-first-token as recorded by SplitwiseSim when the prompt task finishes |
+| TTFT + handoff p99 | Raw TTFT plus the delay before the decode/token task starts; in PD this includes KV-cache transfer and token-side queueing |
 | TBT p99 | 99th percentile time-between-tokens, a decode-stage latency/smoothness metric |
 | E2E p99 | 99th percentile end-to-end request latency from arrival to completion |
 
@@ -33,7 +34,7 @@ Main sweep results:
 
 | Metric | PD better | Share | Median PD / baseline |
 | --- | ---: | ---: | ---: |
-| effective TTFT p99 | 8 / 144 | 5.6% | 1.675 |
+| TTFT + handoff p99 | 8 / 144 | 5.6% | 1.675 |
 | TBT p99 | 109 / 144 | 75.7% | 0.941 |
 | E2E p99 | 90 / 144 | 62.5% | 0.962 |
 
@@ -41,12 +42,12 @@ Interpretation:
 
 - PD improves TBT p99 in 109/144 cases, so its strongest benefit is decode-side token generation latency.
 - PD improves E2E p99 in 90/144 cases, so decode improvements often carry through to total request latency.
-- PD improves effective TTFT p99 in only 8/144 cases, because disaggregation adds KV-cache transfer before the first decode token can be produced.
-- The median effective TTFT ratio is 1.675, meaning PD's tail first-token latency is usually worse in this setup even when TBT or E2E improves.
+- PD improves TTFT + handoff p99 in only 8/144 cases, because disaggregation adds a KV-cache transfer before decode-side token generation can continue.
+- The median TTFT + handoff ratio is 1.675, meaning the prefill-to-decode handoff path is usually worse in this setup even when TBT or E2E improves.
 
 The key takeaway is:
 
-> PD helps when decode-side batching and resource isolation outweigh KV-transfer overhead. It hurts when first-token latency matters most, KV bandwidth is low, prompts are long, or the prompt/decode resource split is poorly matched to the workload.
+> PD helps when decode-side batching and resource isolation outweigh KV-transfer/handoff overhead. It hurts when handoff delay, low KV bandwidth, long prompts, or a poor prompt/decode resource split dominate.
 
 ## What This Fork Adds
 
@@ -122,13 +123,15 @@ Representative results:
 
 ## Metric Note
 
-SplitwiseSim's raw `ttft_times` is recorded when prompt computation completes. For PD, the first token also depends on KV-cache transfer from prefill workers to decode workers. This study therefore uses:
+SplitwiseSim's raw `ttft_times` is recorded when the prompt task completes. In this simulator, the prompt task generates the first output token, and the KV-cache transfer happens between the prompt task and the remaining decode/token task. Therefore raw TTFT and KV handoff delay are separate effects.
+
+This study reports the derived metric:
 
 ```text
 effective_ttft = ttft_times + nth_token_overheads
 ```
 
-Use `effective_ttft_p99` for TTFT discussion in the report.
+The CSV column is named `effective_ttft_*`, but conceptually it is better read as `TTFT + handoff overhead` or `first decode-token readiness`, not pure user-visible TTFT. It is useful for exposing the PD handoff penalty.
 
 ## Reproducing The Main Sweep
 

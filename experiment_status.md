@@ -168,21 +168,23 @@ Across the 144 main parameter points:
 
 | Metric | PD better count | Share | Median PD / baseline |
 | --- | ---: | ---: | ---: |
-| effective TTFT p99 | 8 / 144 | 5.6% | 1.675 |
+| TTFT + handoff p99 | 8 / 144 | 5.6% | 1.675 |
 | TBT p99 | 109 / 144 | 75.7% | 0.941 |
 | E2E p99 | 90 / 144 | 62.5% | 0.962 |
 
 Interpretation:
 
 1. PD often improves token generation latency and end-to-end latency.
-2. PD rarely improves effective TTFT once KV transfer overhead is included.
-3. Low bandwidth strongly hurts effective TTFT.
+2. PD rarely improves the TTFT + handoff metric once KV transfer overhead is included.
+3. Low bandwidth strongly hurts the prefill-to-decode handoff path.
 4. Resource split is a first-order parameter; 4:4 is not always optimal.
 5. The most promising PD region so far is short-to-medium output under high request rate, where decode batching benefits dominate.
 
 ## Important Metric Note
 
-SplitwiseSim's raw `ttft_times` is recorded when prompt computation completes. It does not fully represent first-token latency for disaggregated serving, because KV cache transfer happens after prompt completion.
+SplitwiseSim's raw `ttft_times` is recorded when prompt computation completes. In this simulator, the prompt task also generates the first output token, so raw TTFT is the simulator's standard first-token metric.
+
+KV cache transfer happens after prompt completion and before the remaining token task starts. To expose this handoff penalty, this study also computes:
 
 For this study, use:
 
@@ -190,7 +192,7 @@ For this study, use:
 effective_ttft = ttft_times + nth_token_overheads
 ```
 
-The aggregation script computes:
+The column is named `effective_ttft`, but it is best interpreted as `TTFT + handoff overhead` or `first decode-token readiness`, not pure user-visible TTFT. The aggregation script computes:
 
 ```text
 effective_ttft_p50
@@ -204,11 +206,11 @@ Recommended remaining work:
 
 1. Polish the report narrative around the trade-off:
 
-   PD improves TBT/E2E in many settings, but the KV transfer path makes effective TTFT worse in most A100-only 4:4 settings.
+   PD improves TBT/E2E in many settings, but the KV transfer path makes the TTFT + handoff metric worse in most A100-only 4:4 settings.
 
 2. Select final figures for the course submission:
 
-   Use `results/report_assets/figures/`, especially E2E p99 and effective TTFT p99 heatmaps.
+   Use `results/report_assets/figures/`, especially E2E p99 and TTFT + handoff heatmaps.
 
 3. Add one figure showing resource split sensitivity:
 

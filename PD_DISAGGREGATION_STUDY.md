@@ -14,11 +14,11 @@ Prefill-decode disaggregation is not a universal latency win. In the main A100-o
 
 | Metric | PD better | Median PD / baseline |
 | --- | ---: | ---: |
-| effective TTFT p99 | 8 / 144 | 1.675 |
+| TTFT + handoff p99 | 8 / 144 | 1.675 |
 | TBT p99 | 109 / 144 | 0.941 |
 | E2E p99 | 90 / 144 | 0.962 |
 
-The key trade-off is that PD often improves decode-token latency and sometimes end-to-end latency, but KV-cache transfer usually hurts effective TTFT.
+The key trade-off is that PD often improves decode-token latency and sometimes end-to-end latency, but KV-cache transfer usually hurts the handoff path between prefill and decode. The underlying CSV column is named `effective_ttft`, but it is best interpreted as `TTFT + handoff overhead`, not pure user-visible TTFT.
 
 ## Where To Look
 
