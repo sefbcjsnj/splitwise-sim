@@ -1,0 +1,4 @@
+metric,cases,pd_better_count,pd_better_share,median_pd_over_baseline,p10_pd_over_baseline,p90_pd_over_baseline,min_pd_over_baseline,max_pd_over_baseline
+effective_ttft_p99,144,8,0.0555556,1.67504,1.06847,3.44005,0.844135,5.73983
+tbt_p99,144,109,0.756944,0.940573,0.660671,1.1113,0.47303,2.52086
+e2e_p99,144,90,0.625,0.961985,0.776462,1.22192,0.671381,1.94245

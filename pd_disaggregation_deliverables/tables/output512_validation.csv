@@ -1,0 +1,5 @@
+prompt,output,rate,bandwidth,pd_over_baseline_effective_ttft_p99,pd_over_baseline_tbt_times_p99,pd_over_baseline_response_times_p99
+128,512,20,25,1.17759,0.970601,0.971157
+512,512,20,25,1.67832,0.934704,0.936676
+1024,512,20,25,2.40209,0.877057,0.887718
+2048,512,20,25,3.02977,0.968118,0.975635
