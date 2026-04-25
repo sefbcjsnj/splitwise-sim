@@ -75,6 +75,7 @@ def main() -> None:
     parser.add_argument("--total-a100", type=int, default=8)
     parser.add_argument("--bandwidth", default="25")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--trace-tag", default="")
     parser.add_argument("--output", type=Path, default=Path("results/resource_split_summary.csv"))
     args = parser.parse_args()
 
@@ -83,7 +84,8 @@ def main() -> None:
 
     rows = []
     for prompt, output, rate in workloads:
-        trace = f"param_p{prompt}_o{output}_r{rate}_{args.duration}s"
+        suffix = f"_{args.trace_tag}" if args.trace_tag else ""
+        trace = f"param_p{prompt}_o{output}_r{rate}_{args.duration}s{suffix}"
         baseline_df = read_detailed(baseline_dir(args.seed, trace, args.total_a100))
         baseline_metrics = summarize(baseline_df) if baseline_df is not None else None
 

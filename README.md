@@ -121,6 +121,18 @@ Representative results:
 | Robust favorable case | p128 o64 r100 bw25, 3 trace seeds | mean 0.664 |
 | Robust unfavorable case | p2048 o256 r100 bw25, 3 trace seeds | mean 1.729 |
 
+Core resource-split experiment:
+
+| Split | E2E win share | Median E2E PD / baseline |
+| --- | ---: | ---: |
+| 2:6 | 66.7% | 0.937 |
+| 4:4 | 92.6% | 0.852 |
+| 6:2 | 100.0% | 0.828 |
+
+This focused experiment fixes bandwidth at 25 GB/s and sweeps prompt lengths 128/256/512, output lengths 64/128/256, request rates 20/50/100, and prompt:decode splits 2:6/4:4/6:2. In this moderate workload range, the prefill-heavy 6:2 split performs best most often, showing that fixed 4:4 allocation is not generally optimal.
+
+See [`pd_disaggregation_deliverables/docs/core_split_experiment_summary.md`](pd_disaggregation_deliverables/docs/core_split_experiment_summary.md) for details.
+
 ## Metric Note
 
 SplitwiseSim's raw `ttft_times` is recorded when the prompt task completes. In this simulator, the prompt task generates the first output token, and the KV-cache transfer happens between the prompt task and the remaining decode/token task. Therefore raw TTFT and KV handoff delay are separate effects.
