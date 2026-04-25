@@ -13,6 +13,22 @@ The project compares a coupled LLM serving baseline against prefill-decode (PD) 
 
 Prefill-decode disaggregation is not a universal latency win. In this A100-only simulator study, PD often improves decode-token latency and sometimes improves end-to-end tail latency, but it rarely improves effective time-to-first-token (TTFT) once KV-cache transfer overhead is included.
 
+The main sweep has 144 parameter points:
+
+```text
+4 prompt lengths x 3 output lengths x 3 request rates x 4 KV bandwidths = 144
+```
+
+For each point, the experiment runs both a coupled baseline and a PD-disaggregated configuration. `PD better` means the PD p99 latency is lower than the baseline p99 latency for that metric. `Median PD / baseline` is the median ratio across all 144 points, where values below 1.0 mean PD is faster and values above 1.0 mean PD is slower.
+
+Metric meanings:
+
+| Metric | Meaning |
+| --- | --- |
+| effective TTFT p99 | 99th percentile time-to-first-token, including prompt computation and KV-cache transfer overhead |
+| TBT p99 | 99th percentile time-between-tokens, a decode-stage latency/smoothness metric |
+| E2E p99 | 99th percentile end-to-end request latency from arrival to completion |
+
 Main sweep results:
 
 | Metric | PD better | Share | Median PD / baseline |
@@ -21,9 +37,16 @@ Main sweep results:
 | TBT p99 | 109 / 144 | 75.7% | 0.941 |
 | E2E p99 | 90 / 144 | 62.5% | 0.962 |
 
+Interpretation:
+
+- PD improves TBT p99 in 109/144 cases, so its strongest benefit is decode-side token generation latency.
+- PD improves E2E p99 in 90/144 cases, so decode improvements often carry through to total request latency.
+- PD improves effective TTFT p99 in only 8/144 cases, because disaggregation adds KV-cache transfer before the first decode token can be produced.
+- The median effective TTFT ratio is 1.675, meaning PD's tail first-token latency is usually worse in this setup even when TBT or E2E improves.
+
 The key takeaway is:
 
-> PD helps when decode-side batching and resource isolation outweigh KV-transfer overhead. It hurts when TTFT sensitivity, low bandwidth, long prompts, or poor prompt/decode allocation dominate.
+> PD helps when decode-side batching and resource isolation outweigh KV-transfer overhead. It hurts when first-token latency matters most, KV bandwidth is low, prompts are long, or the prompt/decode resource split is poorly matched to the workload.
 
 ## What This Fork Adds
 
