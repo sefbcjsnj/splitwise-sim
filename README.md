@@ -1,186 +1,187 @@
-# SplitwiseSim: LLM Serving Cluster Simulator
+# When Does Prefill-Decode Disaggregation Help?
 
-SplitwiseSim is a discrete event simulator that helps evaluate model serving in LLM inference clusters. It was built to evaluate [Splitwise](#reference), a generative LLM inference serving technique that splits LLM inference phases across different machines. SplitwiseSim can easily be extended to other applications and use cases.
+This repository is a course-project fork of [SplitwiseSim](https://github.com/Mutinifni/splitwise-sim). It uses SplitwiseSim as a CPU-friendly simulator to study:
 
-## Setup
+```text
+When Does Prefill-Decode Disaggregation Help?
+A Parametric Study of Trade-offs in LLM Serving
+```
 
-You can set up SplitwiseSim by installing its Python dependencies. We recommend starting with a fresh Python environment.
+The project compares a coupled LLM serving baseline against prefill-decode (PD) disaggregation across workload shape, KV-cache transfer bandwidth, request rate, and prompt/decode resource allocation.
 
-```python
-# Create and activate new Python environment
+## Summary
+
+Prefill-decode disaggregation is not a universal latency win. In this A100-only simulator study, PD often improves decode-token latency and sometimes improves end-to-end tail latency, but it rarely improves effective time-to-first-token (TTFT) once KV-cache transfer overhead is included.
+
+Main sweep results:
+
+| Metric | PD better | Share | Median PD / baseline |
+| --- | ---: | ---: | ---: |
+| effective TTFT p99 | 8 / 144 | 5.6% | 1.675 |
+| TBT p99 | 109 / 144 | 75.7% | 0.941 |
+| E2E p99 | 90 / 144 | 62.5% | 0.962 |
+
+The key takeaway is:
+
+> PD helps when decode-side batching and resource isolation outweigh KV-transfer overhead. It hurts when TTFT sensitivity, low bandwidth, long prompts, or poor prompt/decode allocation dominate.
+
+## What This Fork Adds
+
+| Path | Purpose |
+| --- | --- |
+| [`PD_DISAGGREGATION_STUDY.md`](PD_DISAGGREGATION_STUDY.md) | Short project overview and main result |
+| [`report_draft.md`](report_draft.md) | Main report draft |
+| [`experiment_status.md`](experiment_status.md) | Completed experiments, results, and reproduction commands |
+| [`pd_disaggregation_deliverables/`](pd_disaggregation_deliverables/) | Report-ready figures, tables, raw CSV summaries, and docs |
+| [`scripts/generate_param_traces.py`](scripts/generate_param_traces.py) | Synthetic Poisson trace generation |
+| [`scripts/run_param_sweep.py`](scripts/run_param_sweep.py) | Baseline and PD simulation sweep runner |
+| [`scripts/aggregate_param_results.py`](scripts/aggregate_param_results.py) | Metric aggregation and PD/baseline ratios |
+| [`scripts/plot_param_results.py`](scripts/plot_param_results.py) | Line plots for parameter sweeps |
+| [`scripts/plot_param_heatmaps.py`](scripts/plot_param_heatmaps.py) | Heatmaps for crossover regions |
+| [`scripts/create_report_assets.py`](scripts/create_report_assets.py) | Copies/creates report-ready tables and figures |
+| [`configs/orchestrator_repo/schedulers/mixed_pool_a100_bw*.yml`](configs/orchestrator_repo/schedulers/) | A100-only PD scheduler configs with varied KV bandwidth |
+
+Large raw simulator outputs and generated traces are intentionally not committed. The committed `pd_disaggregation_deliverables/` directory contains the compact results needed for review, reporting, and plotting.
+
+## Experiment Design
+
+The main experiment varies four dimensions:
+
+| Dimension | Values |
+| --- | --- |
+| Prompt length | 128, 512, 1024, 2048 tokens |
+| Output length | 16, 64, 256 tokens |
+| Request rate | 20, 50, 100 RPS |
+| KV transfer bandwidth | 50, 25, 12.5, 3.125 GB/s |
+
+Fixed setup:
+
+| Component | Setting |
+| --- | --- |
+| Model | Llama-2-70B |
+| Hardware | A100-only |
+| Total servers | 8 |
+| Coupled baseline | `token_jsq` |
+| Main PD split | 4 prompt instances, 4 decode/token instances |
+| Arrival process | Poisson synthetic traces |
+| Main trace duration | 10 seconds |
+
+Additional checks include:
+
+| Check | Purpose |
+| --- | --- |
+| Output-512 validation | Test longer generation at smaller scope |
+| Resource split sweep | Compare 2:6, 4:4, and 6:2 prompt/decode splits |
+| 30-second validation | Check selected cases with longer traces |
+| Trace-seed robustness | Confirm favorable/unfavorable cases across independent arrival traces |
+
+## Results And Report Assets
+
+For a quick look, start here:
+
+| File or folder | Contents |
+| --- | --- |
+| [`pd_disaggregation_deliverables/report_summary.md`](pd_disaggregation_deliverables/report_summary.md) | Compact result summary |
+| [`pd_disaggregation_deliverables/report_draft.md`](pd_disaggregation_deliverables/report_draft.md) | Report draft copy |
+| [`pd_disaggregation_deliverables/figures/`](pd_disaggregation_deliverables/figures/) | Selected line plots and heatmaps |
+| [`pd_disaggregation_deliverables/tables/`](pd_disaggregation_deliverables/tables/) | Report-ready CSV tables |
+| [`pd_disaggregation_deliverables/raw_csv/`](pd_disaggregation_deliverables/raw_csv/) | Main aggregated CSV outputs |
+| [`pd_disaggregation_deliverables/docs/`](pd_disaggregation_deliverables/docs/) | Experiment plan and status documents |
+
+Representative results:
+
+| Case | Setting | E2E p99 PD / baseline |
+| --- | --- | ---: |
+| Best observed E2E case | prompt=128, output=64, rate=100 RPS, bandwidth=50 GB/s | 0.671 |
+| Worst observed E2E case | prompt=2048, output=256, rate=100 RPS, bandwidth=12.5 GB/s | 1.942 |
+| Robust favorable case | p128 o64 r100 bw25, 3 trace seeds | mean 0.664 |
+| Robust unfavorable case | p2048 o256 r100 bw25, 3 trace seeds | mean 1.729 |
+
+## Metric Note
+
+SplitwiseSim's raw `ttft_times` is recorded when prompt computation completes. For PD, the first token also depends on KV-cache transfer from prefill workers to decode workers. This study therefore uses:
+
+```text
+effective_ttft = ttft_times + nth_token_overheads
+```
+
+Use `effective_ttft_p99` for TTFT discussion in the report.
+
+## Reproducing The Main Sweep
+
+Create and activate a Python 3.11 environment:
+
+```bash
 conda create -n splitwise-sim python=3.11
 conda activate splitwise-sim
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-**NOTE**: SplitwiseSim has only been tested with Python 3.11. However, it will likely also work with other Python versions.
-
-## Inputs and Outputs
-
-SplitwiseSim takes in a hierarchical set of YAML configuration files as input, and it produces several CSV files as output. It uses [Hydra](https://hydra.cc/) for configuration management. You can learn more about configuration management from the [Hydra docs](https://hydra.cc/docs/intro/).
-
-The top-level configuration file for SplitwiseSim is [`config.yaml`](configs/config.yaml), which points to lower-level configurations specified by other files in the `configs/` directory. Specifically, `config.yaml` captures the following key components:
-
-- [cluster](configs/cluster/): the provisioned server SKUs in the cluster, along with their respective counts.
-- [trace](#request-traces): request trace that specifies the set of requests that arrive into the cluster.
-- [router](configs/router/): the cluster-level router that routes incoming requests to application-level schedulers; currently a no-op.
-- [arbiter](configs/arbiter/): the cluster-level arbiter that manages compute resources between applications to support autoscaling; currently a no-op.
-- [application](configs/applications/): the logical endpoint that the requests target, which specifies the model and the set of instances on which the request runs; currently, we support only one application.
-- [model_repo](configs/model_repo/): the set of models (LLMs) available to run in the cluster; used for dynamic model instantiation.
-- [orchestrator_repo](configs/orchestrator_repo/): the set of application resource orchestrators (i.e., schedulers and allocators) in the cluster; used for dynamic application management.
-- [hardware_repo](configs/hardware_repo/): the set of available SKUs that can be provisioned in the cluster; used for dynamic server instantiation.
-- [performance_model](#performance-model): an analytical model that helps estimate request runtimes with different batch, model, and hardware configurations.
-- [start_state](configs/start_state/): starting state for the cluster, which helps simplify evaluation.
-
-Several other aspects can be configured; please see [`config.yaml`](configs/config.yaml) for details.
-
-SplitwiseSim generates the following key outputs:
-
-- Summary of application-level metrics (`summary.csv`)
-- Per-request metrics for each completed request for each application (`detailed/{application_id}.csv`)
-- Request node-level metrics (`request_nodes.csv`)
-- Instance-level execution metrics (in `instances/`, with `debug` enabled)
-
-We provide various [utility functions](notebooks/utils.py) to process outputs, as shown in [`notebooks/example.ipynb`](notebooks/example.ipynb) and [`notebooks/plots.ipynb`](notebooks/plots.ipynb).
-
-## Example Run
-
-The simplest way to run SplitwiseSim is to execute [`run.py`](run.py), which runs with the default configuration parameters specified in [`config.yaml`](configs/config.yaml). The default configurations can be overridden by specifying appropriate command line parameters using Hydra. Below is an example script, [`scripts/run_baseline_h_example.sh`](scripts/run_baseline_h_example.sh), which overrides the default configuration to execute a simple `Baseline-H100` configuration with a single DGX-H100 server.
+Generate traces:
 
 ```bash
-# scripts/run_baseline_h_example.sh
-
-SCHEDULER=token_jsq
-NUM_DGX_A100=0
-NUM_DGX_H100=1
-START_STATE=baseline
-TRACE=test_trace
-
-python run.py \
-    applications.0.scheduler=$SCHEDULER \
-    cluster=half_half \
-    cluster.servers.0.count=$NUM_DGX_A100 \
-    cluster.servers.1.count=$NUM_DGX_H100 \
-    start_state=$START_STATE \
-    performance_model=db \
-    trace.filename=$TRACE \
-    debug=True \
-    seed=0
+python scripts/generate_param_traces.py \
+  --prompts 128,512,1024,2048 \
+  --outputs 16,64,256 \
+  --rates 20,50,100 \
+  --duration 10 \
+  --seed 21
 ```
 
-Specifically, each configuration override changes a corresponding default from `config.yaml` as follows:
-
-- `cluster=half_half` overrides the cluster default from [`dgx-a100`](configs/cluster/dgx-a100.yaml) to [`half_half`](configs/cluster/half_half.yaml), which has 1 DGX-A100 and 1 DGX-H100 server SKU by default.
-- `cluster.servers.*` replace the number of DGX-A100 and DGX-H100 servers within the [`half_half`](configs/cluster/half_half.yaml) cluster to 0 and 1, respectively.
-- `applications.0.scheduler=token_jsq` switches the default [`round_robin`](configs/orchestrator_repo/schedulers/round_robin.yaml) scheduler, as specified in [`configs/applications/solo.yaml`](configs/applications/solo.yaml), to the [`token_jsq`](configs/orchestrator_repo/schedulers/token_jsq.yaml) scheduler.
-- `start_state=baseline` overrides the starting state from [`orca`](configs/start_state/orca.yaml) to [`baseline`](configs/start_state/baseline.yaml).
-- `performance_model=db` overrides the performance model to [`db`](configs/performance_model/db.yaml) instead of the default [`constant`](configs/performance_model/constant.yaml).
-- `trace.filename=test_trace` changes the trace file name (same as default, so no effect).
-- `debug=True` enables the debug flag (changed from `False`)
-- `seed=0` sets the seed to `0` (same as default, so no effect).
-
-Several of the above overrides configure objects of classes specified by the `_target_` field in the corresponding configuration files.
-
-To simulate this simple Baseline-H100 configuration with a single DGX-H100 on [`test_trace.csv`](traces/test_trace.csv), we can simply run the bash script:
+Run the main baseline/PD sweep:
 
 ```bash
-# run simple Baseline-H100 example
-./scripts/run_baseline_h_example.sh
+python scripts/run_param_sweep.py \
+  --prompts 128,512,1024,2048 \
+  --outputs 16,64,256 \
+  --rates 20,50,100 \
+  --bandwidths 50,25,12.5,3.125 \
+  --duration 10
 ```
 
-Similarly, we could run a simple Splitwise-HA configuration, which simulates KV-cache transfers from a DGX-H100 machine to DGX-A100 machine (see [paper](#reference) for more details):
+Aggregate results:
 
 ```bash
-
-# run simple Splitwise-HA example
-./scripts/run_splitwise_ha_example.sh
+python scripts/aggregate_param_results.py \
+  --prompts 128,512,1024,2048 \
+  --outputs 16,64,256 \
+  --rates 20,50,100 \
+  --bandwidths 50,25,12.5,3.125 \
+  --duration 10 \
+  --output results/main_o16_o64_o256_pairs.csv
 ```
 
-**NOTE**: Scripts must be run from the top-level directory.
+Generate report assets:
 
-Results will be generated in the `results/` directory according to the output path template specified by the `output_dir` field in [`config.yaml`](configs/config.yaml). Open [`notebooks/example.ipynb`](notebooks/example.ipynb) using Jupyter Notebook to see an example of how to easily extract the associated outputs.
+```bash
+python scripts/create_report_assets.py
+```
 
-## Request Traces
+The sweep can be run on CPU because SplitwiseSim is a simulator. Runtime depends on workload size; the full sweep is more expensive than a single sanity run but does not require GPUs.
 
-SplitwiseSim expects request traces in a CSV file that contains the following fields for each request:
+## Repository Layout
 
-- `request_id`: ID of the request, typically a monotonically increasing number.
-- `request_type`: Type of the request (e.g., DL inference, LLM inference, etc.). Use `2` for generative LLM inference, which is the only supported type at present.
-- `application_id`: ID of the application / endpoint that the request targets. Default to `0` for a single application.
-- `arrival_timestamp`: Timestamp at which the request arrives into the cluster.
-- `batch_size`: If the request is already batched when it arrives, that can be specified here (currently not used).
-- `prompt_size`: Number of tokens in the input prompt of the request.
-- `token_size`: Number of tokens to be generated as output by the request.
+```text
+.
++-- configs/                                  # SplitwiseSim configs plus A100-only PD bandwidth configs
++-- scripts/                                  # Experiment automation and plotting scripts
++-- pd_disaggregation_deliverables/            # Compact report-ready results
+|   +-- figures/
+|   +-- tables/
+|   +-- raw_csv/
+|   +-- docs/
++-- report_draft.md
++-- experiment_status.md
++-- PD_DISAGGREGATION_STUDY.md
++-- run.py                                    # SplitwiseSim entry point
+```
 
-Many of these fields have limited configurability at present. A typical new trace would change the `request_id`, `arrival_timestamp`, `prompt_size`, and `token_size`. An example trace can be found in [`traces/test_trace.csv`](traces/test_trace.csv).
+## Attribution
 
-### Production Traces and Trace Generation
+This project builds on SplitwiseSim:
 
-[Splitwise](#reference) was evaluated with request traces that were based off [production traces](https://github.com/Azure/AzurePublicDataset/blob/master/AzureLLMInferenceDataset2023.md) from LLM inference services at Microsoft Azure. The [`generate_trace.py`](generate_trace.py) script can automatically download the production traces and use the corresponding prompt/token size distributions to generate request traces with different request rates. It can also help generate custom traces with different kinds of distributions. Modify and run `generate_trace.py` with desired request rates and other parameters. By default, all generated traces are expected to reside in the `traces/` directory.
+```text
+https://github.com/Mutinifni/splitwise-sim
+```
 
-## Request Processing
-
-SplitwiseSim processes request traces as follows:
-
-- All requests first arrive at a [Cluster](cluster.py)-level [Router](router.py), which forwards them to their target [Application](application.py). The Cluster also has an [Arbiter](arbiter.py) which helps reallocate [Servers](server.py) or [Processors](processor.py) between Applications. Currently, the Router and Arbiter act as no-ops, but they could be modified in the future to include smarter routing and autoscaling strategies with overheads.
-- Each [Request](request.py) targets a specific [Application](application.py), which may have one or more [Instances](instance.py) that run [Models](model.py). [Applications](application.py) use [Allocators](allocator.py) to spin-up/spin-down Instances on [Processors](processor.py), and they use [Schedulers](scheduler.py) to load balance Requests across Instances. Currently, we do not support dynamic Instance spin-up/spin-down, but rather use [start states](start_state.py) for specifying the initial set of Cluster Instances.
-- [Requests](request.py) are specified as a Directed Acyclic Graph (DAG) of [Nodes](node.py) for flexibility. Request nodes may either be [Tasks](task.py) and [Flows](flow.py). Requests are processed on [Instances](instance.py), which run on [Servers](server.py); specifically, Tasks are run on [Processors](processor.py) and Flows are run on [Links](interconnect.py).
-
-Note that all simulation times are assumed to be specified in seconds.
-
-## Performance Model
-
-The [performance_model](performance_model.py) helps SplitwiseSim estimate how long requests run on diverse input, output, hardware, batch, etc. configurations. `performance_model.PerformanceModel` is an interface class which exposes the following two estimation functions to the simulator:
-
-1. `get_duration()`: used to estimate the runtime of prompt and token tasks.
-2. `get_iteration_duration()`: used to estimate the runtime of each batching iteration (e.g., from continuous batching).
-
-Since modern LLM serving typically uses [iteration-level scheduling](https://www.usenix.org/conference/osdi22/presentation/yu), we primarily rely on `get_iteration_duration` in the [Instance](instance.py) implementation (e.g., ORCAInstance and SplitwiseInstance).
-
-Currently, SplitwiseSim provides two concrete performance models:
-
-1. `performance_model=constant`: This model assumes that all prompt and token tasks take a constant duration. While unrealistic, it is helpful for testing / debugging purposes.
-2. `performance_model=db`: This model uses extensive profiling data from the DGX-A100 and DGX-H100 machines and is the preferable model to use for realistic simulations. The associated raw data can be found in [`data/perf-model.csv`](data/perf-model.csv). The `performance_model.DatabasePerformanceModel` class reads this raw data to build a simple linear predictor, which serves as the performance model. To extend SplitwiseSim to different LLMs/platforms, please add your profiling data to the data file and potentially update the performance model predictor.
-
-## Experiments Workflow
-
-This section describes how to run larger-scale simulations spanning a variety of configurations.
-
-### Parallel Simulations
-
-SplitwiseSim can be run on multiple cores (on one or more machines) to evaluate many different configurations in parallel. Each simulation configuration is run in a single process on a single core. SplitwiseSim uses [Ray](https://github.com/ray-project/ray) via the [Hydra Ray plugin](https://hydra.cc/docs/plugins/ray_launcher/) for parallelization.
-
-To start a Ray cluster, run:
-
-- `ray start --head` on the head machine.
-- `ray start --address=xxx` on each of the worker machines.
-
-See [Ray docs](https://docs.ray.io/en/latest/cluster/vms/user-guides/launching-clusters/on-premises.html) for more details.
-
-If you do not want to use Ray, you may alternatively use the Hydra [joblib](https://hydra.cc/docs/plugins/joblib_launcher/) launcher, which only supports multicore parallelization on a single machine.
-
-Running a Hydra configuration in parallel requires the `--multirun` flag. For example, to sweep over multiple seed values in parallel, use `python --multirun run.py seed=0,1,2,3,4,5,6,7,8,9` after starting the Ray cluster.
-
-Output from multi-machine runs is stored on different machines corresponding to where each simulation configuration runs. Subsequently, you may need to manually collect results back into the same machine using sync scripts. Example sync scripts can be found in the `sync_scripts` folder.
-
-### Experiment Runs
-
-The `scripts/` directory provides several scripts to run larger experiments, including parallel sweeps over different cluster configurations:
-
-- To run a baseline configuration, run `./scripts/run_baseline_a.sh` (Baseline-A100) or `./scripts/run_baseline_h.sh` (Baseline-H100).
-- To run a Splitwise configuration, run the appropriate Splitwise-XX file under the scripts directory. For example, to run Splitwise-HA, run `./scripts/run_splitwise_ha.sh`.
-- Various experiment configurations used in the [Splitwise paper](#reference) are specified in the `configs/experiment/` folder. For example, to run a sweep of iso-cost clusters, you can run `./scripts/run_isocost.sh` which corresponds to `configs/experiment/*_isocost.yaml` with the appropriate sweep parameters (warning: running this may spin up many configurations in parallel and take a long time; try smaller configurations to begin with).
-
-### Experiment Plots and Gantt Charts
-
-Outputs from experiment sweeps can be visualized by using the plotting scripts provided in `notebooks/plots.ipynb`. These scripts were used to plot some of the graphs in the [Splitwise paper](#reference).
-
-If the `debug` flag is enabled, SplitwiseSim additionally outputs iteration-level metadata per instance (including start/end timestamps), which can be visualized as Gantt charts for analysis and debugging. Check out `notebooks/example.ipynb` for a simple example. Custom markers can be added by modifying the simulator.
-
-## Reference
-
-If you use SplitwiseSim in your work, please cite the accompanying [paper](https://www.microsoft.com/en-us/research/publication/splitwise-efficient-generative-llm-inference-using-phase-splitting/):
-
-> Pratyush Patel, Esha Choukse, Chaojie Zhang, Aashaka Shah, Íñigo Goiri, Saeed Maleki, Ricardo Bianchini. "Splitwise: Efficient Generative LLM Inference Using Phase Splitting", in Proceedings of the International Symposium on Computer Architecture (ISCA 2024). ACM, Buenos Aires, Argentina, 2024.
+The original simulator was developed for evaluating Splitwise-style LLM serving. This fork adds the course-project experiment scripts, A100-only PD scheduler variants, result summaries, and report assets for the prefill-decode disaggregation trade-off study.
