@@ -733,3 +733,33 @@ class MixedPoolScheduler(KVScheduler):
         # bookkeeping
         prompt_instance.sched_pending_tokens += prompt_task.prompt_size
         token_instance.sched_pending_tokens += 1
+
+
+class OverlapMixedPoolScheduler(MixedPoolScheduler):
+    """
+    Same as MixedPoolScheduler, but approximates overlapping KV transfer with
+    prompt computation by using 10x the configured transfer bandwidth.
+
+    This follows the existing OverlapKV* scheduler convention in this simulator.
+    """
+    def __init__(self,
+                 application,
+                 router,
+                 overheads,
+                 executor_overheads,
+                 prompt_processors,
+                 token_processors,
+                 prompt_max_pending_batch_tokens,
+                 token_max_pending_batch_tokens,
+                 transfer_bandwidth,
+                 debug=False):
+        super().__init__(application,
+                         router,
+                         overheads,
+                         executor_overheads,
+                         prompt_processors,
+                         token_processors,
+                         prompt_max_pending_batch_tokens,
+                         token_max_pending_batch_tokens,
+                         transfer_bandwidth * 10,
+                         debug)

@@ -54,7 +54,14 @@ def baseline_dir(seed: int, trace: str, total_a100: int) -> Path:
     )
 
 
-def pd_dir(seed: int, trace: str, total_a100: int, split: tuple[int, int], bandwidth: str) -> Path:
+def pd_dir(
+    seed: int,
+    trace: str,
+    total_a100: int,
+    split: tuple[int, int],
+    bandwidth: str,
+    scheduler_prefix: str,
+) -> Path:
     prompt_instances, token_instances = split
     return (
         Path("results")
@@ -63,7 +70,7 @@ def pd_dir(seed: int, trace: str, total_a100: int, split: tuple[int, int], bandw
         / trace
         / f"{total_a100}_0"
         / "llama2-70b"
-        / f"mixed_pool_a100_bw{bandwidth}"
+        / f"{scheduler_prefix}{bandwidth}"
     )
 
 
@@ -74,6 +81,7 @@ def main() -> None:
     parser.add_argument("--duration", type=int, default=10)
     parser.add_argument("--total-a100", type=int, default=8)
     parser.add_argument("--bandwidth", default="25")
+    parser.add_argument("--scheduler-prefix", default="mixed_pool_a100_bw")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--trace-tag", default="")
     parser.add_argument("--output", type=Path, default=Path("results/resource_split_summary.csv"))
@@ -90,7 +98,16 @@ def main() -> None:
         baseline_metrics = summarize(baseline_df) if baseline_df is not None else None
 
         for split in splits:
-            pd_df = read_detailed(pd_dir(args.seed, trace, args.total_a100, split, args.bandwidth))
+            pd_df = read_detailed(
+                pd_dir(
+                    args.seed,
+                    trace,
+                    args.total_a100,
+                    split,
+                    args.bandwidth,
+                    args.scheduler_prefix,
+                )
+            )
             row = {
                 "prompt": prompt,
                 "output": output,

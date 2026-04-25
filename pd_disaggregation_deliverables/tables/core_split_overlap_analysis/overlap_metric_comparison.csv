@@ -1,0 +1,7 @@
+metric,cases,pd_better_count,pd_better_share,median_pd_over_baseline,p10_pd_over_baseline,p90_pd_over_baseline,mode
+handoff,81,0,0,1.5545,1.23964,4.38323,no_overlap
+tbt,81,71,0.876543,0.852691,0.634037,1.01991,no_overlap
+e2e,81,70,0.864198,0.8695,0.662697,1.04588,no_overlap
+handoff,81,10,0.123457,1.43979,0.960583,4.01752,overlap
+tbt,81,72,0.888889,0.844756,0.630059,1.01776,overlap
+e2e,81,71,0.876543,0.86862,0.660954,1.04584,overlap

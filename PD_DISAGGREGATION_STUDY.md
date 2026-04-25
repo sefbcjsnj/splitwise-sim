@@ -20,6 +20,19 @@ Prefill-decode disaggregation is not a universal latency win. In the main A100-o
 
 The key trade-off is that PD often improves decode-token latency and sometimes end-to-end latency, but KV-cache transfer usually hurts the handoff path between prefill and decode. The underlying CSV column is named `effective_ttft`, but it is best interpreted as `TTFT + handoff overhead`, not pure user-visible TTFT.
 
+## Core Resource-Split Result
+
+A focused follow-up experiment fixes KV bandwidth at 25 GB/s and sweeps:
+
+```text
+prompt = 128, 256, 512
+output = 64, 128, 256
+rate = 20, 50, 100 RPS
+prompt:decode split = 2:6, 4:4, 6:2
+```
+
+In this matrix, PD improves E2E p99 in 70/81 cases without overlap and 71/81 cases with overlap. The prefill-heavy 6:2 split is best most often, winning 17/27 workload points by E2E. This shows that PD performance depends strongly on matching resource split to the workload's prefill demand, decode demand, and KV handoff cost.
+
 ## Where To Look
 
 | Path | Contents |

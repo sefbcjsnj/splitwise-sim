@@ -133,6 +133,17 @@ This focused experiment fixes bandwidth at 25 GB/s and sweeps prompt lengths 128
 
 See [`pd_disaggregation_deliverables/docs/core_split_experiment_summary.md`](pd_disaggregation_deliverables/docs/core_split_experiment_summary.md) for details.
 
+Core overlap sensitivity:
+
+| Mode | TTFT + handoff median | E2E win share | Median E2E PD / baseline |
+| --- | ---: | ---: | ---: |
+| No overlap | 1.555 | 86.4% | 0.869 |
+| Overlap | 1.440 | 87.7% | 0.869 |
+
+Overlap reduces the handoff penalty, but in this moderate workload matrix it only slightly changes E2E because PD already improves most E2E cases. The best split distribution is unchanged: 6:2 is best for 17/27 workloads, 4:4 for 9/27, and 2:6 for 1/27.
+
+See [`pd_disaggregation_deliverables/docs/core_split_overlap_summary.md`](pd_disaggregation_deliverables/docs/core_split_overlap_summary.md) for details.
+
 ## Metric Note
 
 SplitwiseSim's raw `ttft_times` is recorded when the prompt task completes. In this simulator, the prompt task generates the first output token, and the KV-cache transfer happens between the prompt task and the remaining decode/token task. Therefore raw TTFT and KV handoff delay are separate effects.

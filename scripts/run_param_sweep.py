@@ -57,8 +57,9 @@ def pd_summary_path(
     prompt_instances: int,
     token_instances: int,
     bandwidth: float,
+    scheduler_prefix: str,
 ) -> Path:
-    scheduler = f"mixed_pool_a100_bw{bandwidth_label(bandwidth)}"
+    scheduler = f"{scheduler_prefix}{bandwidth_label(bandwidth)}"
     return (
         Path("results")
         / str(seed)
@@ -110,6 +111,7 @@ def main() -> None:
     parser.add_argument("--token-instances", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--trace-tag", default="")
+    parser.add_argument("--pd-scheduler-prefix", default="mixed_pool_a100_bw")
     parser.add_argument("--systems", default="baseline,pd")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -172,7 +174,7 @@ def main() -> None:
 
                 if "pd" in systems:
                     for bandwidth in bandwidths:
-                        scheduler = f"mixed_pool_a100_bw{bandwidth_label(bandwidth)}"
+                        scheduler = f"{args.pd_scheduler_prefix}{bandwidth_label(bandwidth)}"
                         summary = pd_summary_path(
                             args.seed,
                             trace,
@@ -180,6 +182,7 @@ def main() -> None:
                             args.prompt_instances,
                             args.token_instances,
                             bandwidth,
+                            args.pd_scheduler_prefix,
                         )
                         status = "skipped"
                         elapsed = 0.0
