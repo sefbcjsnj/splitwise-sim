@@ -25,8 +25,8 @@ Metric meanings:
 
 | Metric | Meaning |
 | --- | --- |
-| raw TTFT p99 | 99th percentile time-to-first-token as recorded by SplitwiseSim when the prompt task finishes |
-| TTFT + handoff p99 | Raw TTFT plus the delay before the decode/token task starts; in PD this includes KV-cache transfer and token-side queueing |
+| TTFT p99 | 99th percentile time-to-first-token as recorded by SplitwiseSim when the prompt task finishes and the first token is generated |
+| Handoff-adjusted TTFT p99 | TTFT plus the delay before the decode/token task starts; in PD this includes KV-cache transfer and token-side queueing |
 | TBT p99 | 99th percentile time-between-tokens, a decode-stage latency/smoothness metric |
 | E2E p99 | 99th percentile end-to-end request latency from arrival to completion |
 
@@ -34,7 +34,8 @@ Main sweep results:
 
 | Metric | PD better | Share | Median PD / baseline |
 | --- | ---: | ---: | ---: |
-| TTFT + handoff p99 | 8 / 144 | 5.6% | 1.675 |
+| TTFT p99 | 17 / 144 | 11.8% | 1.190 |
+| Handoff-adjusted TTFT p99 | 8 / 144 | 5.6% | 1.675 |
 | TBT p99 | 109 / 144 | 75.7% | 0.941 |
 | E2E p99 | 90 / 144 | 62.5% | 0.962 |
 
@@ -42,8 +43,8 @@ Interpretation:
 
 - PD improves TBT p99 in 109/144 cases, so its strongest benefit is decode-side token generation latency.
 - PD improves E2E p99 in 90/144 cases, so decode improvements often carry through to total request latency.
-- PD improves TTFT + handoff p99 in only 8/144 cases, because disaggregation adds a KV-cache transfer before decode-side token generation can continue.
-- The median TTFT + handoff ratio is 1.675, meaning the prefill-to-decode handoff path is usually worse in this setup even when TBT or E2E improves.
+- PD improves standard TTFT p99 in only 17/144 cases; prompt-side queueing can offset the first-token benefit of phase splitting.
+- PD improves handoff-adjusted TTFT p99 in only 8/144 cases, because disaggregation adds a KV-cache transfer before decode-side token generation can continue.
 
 The key takeaway is:
 
@@ -54,6 +55,8 @@ The key takeaway is:
 | Path | Purpose |
 | --- | --- |
 | [`PD_DISAGGREGATION_STUDY.md`](PD_DISAGGREGATION_STUDY.md) | Short project overview and main result |
+| [`course_report/main.pdf`](course_report/main.pdf) | Final 6-8 page course project paper |
+| [`course_report/`](course_report/) | LaTeX source, bibliography, and figures for the final paper |
 | [`report_draft.md`](report_draft.md) | Main report draft |
 | [`experiment_status.md`](experiment_status.md) | Completed experiments, results, and reproduction commands |
 | [`pd_disaggregation_deliverables/`](pd_disaggregation_deliverables/) | Report-ready figures, tables, raw CSV summaries, and docs |
@@ -96,6 +99,7 @@ Additional checks include:
 | --- | --- |
 | Output-512 validation | Test longer generation at smaller scope |
 | Resource split sweep | Compare 2:6, 4:4, and 6:2 prompt/decode splits |
+| Strict no-borrow PD sweep | Compare strict prompt/decode separation against Splitwise-style elastic `MixedPool` behavior |
 | 30-second validation | Check selected cases with longer traces |
 | Trace-seed robustness | Confirm favorable/unfavorable cases across independent arrival traces |
 
@@ -105,12 +109,15 @@ For a quick look, start here:
 
 | File or folder | Contents |
 | --- | --- |
+| [`course_report/main.pdf`](course_report/main.pdf) | Final course project paper, including figures, caveats, and future work |
+| [`course_report/main.tex`](course_report/main.tex) | Editable LaTeX source for the paper |
 | [`pd_disaggregation_deliverables/report_summary.md`](pd_disaggregation_deliverables/report_summary.md) | Compact result summary |
 | [`pd_disaggregation_deliverables/report_draft.md`](pd_disaggregation_deliverables/report_draft.md) | Report draft copy |
 | [`pd_disaggregation_deliverables/figures/`](pd_disaggregation_deliverables/figures/) | Selected line plots and heatmaps |
 | [`pd_disaggregation_deliverables/tables/`](pd_disaggregation_deliverables/tables/) | Report-ready CSV tables |
 | [`pd_disaggregation_deliverables/raw_csv/`](pd_disaggregation_deliverables/raw_csv/) | Main aggregated CSV outputs |
 | [`pd_disaggregation_deliverables/docs/`](pd_disaggregation_deliverables/docs/) | Experiment plan and status documents |
+| [`pd_disaggregation_deliverables/docs/strict_pd_experiment_summary.md`](pd_disaggregation_deliverables/docs/strict_pd_experiment_summary.md) | Strict no-borrow PD control experiment summary |
 
 Representative results:
 
@@ -135,7 +142,7 @@ See [`pd_disaggregation_deliverables/docs/core_split_experiment_summary.md`](pd_
 
 Core overlap sensitivity:
 
-| Mode | TTFT + handoff median | E2E win share | Median E2E PD / baseline |
+| Mode | Handoff-adjusted TTFT median | E2E win share | Median E2E PD / baseline |
 | --- | ---: | ---: | ---: |
 | No overlap | 1.555 | 86.4% | 0.869 |
 | Overlap | 1.440 | 87.7% | 0.869 |
@@ -148,13 +155,13 @@ See [`pd_disaggregation_deliverables/docs/core_split_overlap_summary.md`](pd_dis
 
 SplitwiseSim's raw `ttft_times` is recorded when the prompt task completes. In this simulator, the prompt task generates the first output token, and the KV-cache transfer happens between the prompt task and the remaining decode/token task. Therefore raw TTFT and KV handoff delay are separate effects.
 
-This study reports the derived metric:
+This study reports standard `ttft_times_*` for paper-aligned TTFT, and also reports the derived diagnostic metric:
 
 ```text
-effective_ttft = ttft_times + nth_token_overheads
+handoff_adjusted_ttft = ttft_times + nth_token_overheads
 ```
 
-The CSV column is named `effective_ttft_*`, but conceptually it is better read as `TTFT + handoff overhead` or `first decode-token readiness`, not pure user-visible TTFT. It is useful for exposing the PD handoff penalty.
+Older CSVs name this `effective_ttft_*`, but conceptually it is better read as `handoff-adjusted TTFT` or `first decode-token readiness`, not pure user-visible TTFT. It is useful for exposing the PD handoff penalty.
 
 ## Reproducing The Main Sweep
 
@@ -214,6 +221,7 @@ The sweep can be run on CPU because SplitwiseSim is a simulator. Runtime depends
 .
 +-- configs/                                  # SplitwiseSim configs plus A100-only PD bandwidth configs
 +-- scripts/                                  # Experiment automation and plotting scripts
++-- course_report/                            # Final course paper PDF and LaTeX source
 +-- pd_disaggregation_deliverables/            # Compact report-ready results
 |   +-- figures/
 |   +-- tables/

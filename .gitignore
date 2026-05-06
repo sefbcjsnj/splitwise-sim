@@ -3,6 +3,7 @@ __pycache__
 results/
 .hydra
 *.pdf
+!course_report/main.pdf
 traces/
 code_distributions.csv
 conv_distributions.csv
